@@ -1,0 +1,2 @@
+# Dot Matrix tools: image handling for convert.py
+Pillow>=10.0.0

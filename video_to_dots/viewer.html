@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<!--
+  viewer.html — Dot Matrix JSON Viewer
+
+  Load a dot_video.json file (from convert.py) and play it back as a dot matrix:
+  white background, black dots with opacity from each frame value (0.0–1.0).
+  Play/Pause at the JSON’s fps; frame counter shown. No conversion — display only.
+-->
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dot Matrix Viewer</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #1a1a1a;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-family: system-ui, sans-serif;
+      color: #eee;
+    }
+
+    h1 {
+      font-size: 1rem;
+      font-weight: 500;
+      margin-bottom: 0.5rem;
+    }
+
+    .drop-zone {
+      border: 2px dashed #444;
+      border-radius: 8px;
+      padding: 1rem 2rem;
+      margin-bottom: 1rem;
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+
+    .drop-zone:hover,
+    .drop-zone.dragover {
+      border-color: #888;
+    }
+
+    .viewer-wrap {
+      background: #fff;
+      border-radius: 4px;
+      padding: 8px;
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+    }
+
+    #canvas {
+      display: block;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+    }
+
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+
+    .controls button {
+      background: #333;
+      color: #eee;
+      border: none;
+      padding: 0.5rem 1rem;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+
+    .controls button:hover {
+      background: #444;
+    }
+
+    .controls button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .controls span {
+      font-size: 0.85rem;
+      color: #999;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>Dot Matrix Viewer</h1>
+  <div class="drop-zone" id="drop">Drop <code>dot_video.json</code> here or click to choose</div>
+  <input type="file" id="file" accept=".json" hidden>
+  <div class="viewer-wrap" id="wrap" style="display: none;">
+    <canvas id="canvas"></canvas>
+  </div>
+  <div class="controls" id="controls" style="display: none;">
+    <button id="play">Play</button>
+    <button id="pause">Pause</button>
+    <span id="info">Frame 0 / 0</span>
+  </div>
+
+  <script>
+    const drop = document.getElementById('drop');
+    const fileInput = document.getElementById('file');
+    const wrap = document.getElementById('wrap');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const controls = document.getElementById('controls');
+    const playBtn = document.getElementById('play');
+    const pauseBtn = document.getElementById('pause');
+    const info = document.getElementById('info');
+
+    let data = null;
+    let frameIndex = 0;
+    let raf = null;
+    let lastTime = 0;
+
+    const DOT_RADIUS = 0.45;
+
+    drop.addEventListener('click', () => fileInput.click());
+    drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('dragover'); });
+    drop.addEventListener('dragleave', () => drop.classList.remove('dragover'));
+    drop.addEventListener('drop', (e) => {
+      e.preventDefault();
+      drop.classList.remove('dragover');
+      const f = e.dataTransfer.files[0];
+      if (f && f.name.endsWith('.json')) loadFile(f);
+    });
+    fileInput.addEventListener('change', () => {
+      const f = fileInput.files[0];
+      if (f) loadFile(f);
+    });
+
+    function loadFile(file) {
+      const r = new FileReader();
+      r.onload = () => {
+        try {
+          data = JSON.parse(r.result);
+          if (!data.frames || !Array.isArray(data.frames)) throw new Error('Invalid format');
+          frameIndex = 0;
+          initCanvas();
+          drawFrame();
+          wrap.style.display = 'block';
+          controls.style.display = 'flex';
+          updateInfo();
+        } catch (e) {
+          alert('Invalid JSON: ' + e.message);
+        }
+      };
+      r.readAsText(file);
+    }
+
+    function initCanvas() {
+      const cols = data.cols || 40;
+      const rows = data.rows || 30;
+      const cell = 12;
+      canvas.width = cols * cell;
+      canvas.height = rows * cell;
+      canvas.style.width = (cols * cell) + 'px';
+      canvas.style.height = (rows * cell) + 'px';
+    }
+
+    function drawFrame() {
+      if (!data || !data.frames[frameIndex]) return;
+      const cols = data.cols;
+      const rows = data.rows;
+      const cell = 12;
+      const r = (cell / 2) * DOT_RADIUS;
+
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      const frame = data.frames[frameIndex];
+      for (let i = 0; i < rows; i++) {
+        for (let j = 0; j < cols; j++) {
+          const v = frame[i * cols + j];
+          const opacity = typeof v === 'number' ? v : (v ? 1 : 0);
+          if (opacity <= 0) continue;
+          const x = j * cell + cell / 2;
+          const y = i * cell + cell / 2;
+          ctx.fillStyle = `rgba(0, 0, 0, ${opacity})`;
+          ctx.beginPath();
+          ctx.arc(x, y, r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+
+    function updateInfo() {
+      info.textContent = `Frame ${frameIndex + 1} / ${data ? data.frameCount : 0}`;
+    }
+
+    function loop(now) {
+      if (!data) return;
+      const fps = data.fps || 15;
+      const interval = 1000 / fps;
+      if (now - lastTime >= interval) {
+        lastTime = now;
+        frameIndex = (frameIndex + 1) % data.frames.length;
+        drawFrame();
+        updateInfo();
+      }
+      raf = requestAnimationFrame(loop);
+    }
+
+    playBtn.addEventListener('click', () => {
+      if (!data) return;
+      lastTime = performance.now();
+      if (raf) cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(loop);
+    });
+
+    pauseBtn.addEventListener('click', () => {
+      if (raf) cancelAnimationFrame(raf);
+      raf = null;
+    });
+  </script>
+</body>
+
+</html>

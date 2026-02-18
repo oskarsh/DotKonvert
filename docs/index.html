@@ -1,0 +1,489 @@
+<!--
+  live_preview.html — Dot Matrix Live Preview
+
+  App layout: left sidebar (convert settings), center (video + preview + playback),
+  right sidebar (export). Open in browser; drop or pick a video; tune and export JSON.
+-->
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dot Matrix Live Preview</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="live_preview.css">
+</head>
+
+<body>
+  <div class="app">
+    <aside class="sidebar sidebar-left">
+      <div class="sidebar-inner">
+        <details class="sidebar-category" open>
+          <summary class="sidebar-category-summary">Source</summary>
+          <div class="sidebar-category-body">
+            <div class="control-group">
+              <label>Generator</label>
+              <div class="control-row">
+                <select id="sourceMode">
+                  <option value="video">Video file</option>
+                  <option value="webcam">Webcam</option>
+                  <option value="perlin">Perlin noise</option>
+                  <option value="waves">Waves</option>
+                  <option value="waves3d">3D Waves</option>
+                  <option value="vertex">Vertex mesh</option>
+                  <option value="plasma">Plasma</option>
+                  <option value="terrain">Terrain</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </details>
+        <details class="sidebar-category" open>
+          <summary class="sidebar-category-summary">Convert</summary>
+          <div class="sidebar-category-body">
+            <div class="control-group">
+              <label>Preset</label>
+              <div class="control-row">
+                <select id="presetSelect">
+                  <option value="">Custom</option>
+                  <option value="8level">8-level (default)</option>
+                  <option value="1bit">1-bit high contrast</option>
+                  <option value="led">LED punchy</option>
+                  <option value="smooth">Smooth continuous</option>
+                  <option value="minimal">Minimal sparse</option>
+                  <option value="grain">Film grain</option>
+                  <option value="colorVivid">Color vivid</option>
+                  <option value="colorPastel">Color pastel</option>
+                  <option value="colorMono">Color (desat)</option>
+                  <option value="bwSoft">B&amp;W soft</option>
+                  <option value="bwPunchy">B&amp;W punchy</option>
+                  <option value="noisy">Noisy</option>
+                  <option value="mirror">Mirror (flip H)</option>
+                  <option value="softDots">Soft dots</option>
+                </select>
+              </div>
+            </div>
+            <div class="control-group preset-save">
+              <div class="control-row">
+                <input type="text" id="presetNameInput" placeholder="Preset name" maxlength="40">
+                <button type="button" id="presetSaveBtn">Save</button>
+              </div>
+              <p class="preset-save-status" id="presetSaveStatus"></p>
+            </div>
+            <div class="control-group">
+              <label>Output / brightness levels</label>
+              <div class="control-row">
+                <select id="outputMode">
+                  <option value="1">1-bit (on/off)</option>
+                  <option value="2">2 levels</option>
+                  <option value="4">4 levels</option>
+                  <option value="8" selected>8 levels</option>
+                  <option value="16">16 levels</option>
+                  <option value="full">Full (continuous)</option>
+                </select>
+              </div>
+            </div>
+            <div class="control-group">
+              <label>Brightness</label>
+              <div class="control-row">
+                <input type="range" id="brightness" min="-100" max="100" value="0">
+                <span class="value" id="brightnessVal">0</span>
+              </div>
+            </div>
+            <div class="control-group">
+              <label>Contrast</label>
+              <div class="control-row">
+                <input type="range" id="contrast" min="50" max="200" value="100">
+                <span class="value" id="contrastVal">1.0</span>
+              </div>
+            </div>
+            <div class="control-group">
+              <label>Gamma</label>
+              <div class="control-row">
+                <input type="range" id="gamma" min="50" max="250" value="100">
+                <span class="value" id="gammaVal">1.0</span>
+              </div>
+            </div>
+            <div class="control-group" id="thresholdGroup">
+              <label>Threshold (0–255)</label>
+              <div class="control-row">
+                <input type="range" id="threshold" min="0" max="255" value="128">
+                <span class="value" id="thresholdVal">128</span>
+              </div>
+            </div>
+          </div>
+        </details>
+        <details class="sidebar-category" open>
+          <summary class="sidebar-category-summary">Pre-processing</summary>
+          <div class="sidebar-category-body">
+            <div class="control-group">
+              <label>Saturation</label>
+              <div class="control-row">
+                <input type="range" id="saturation" min="0" max="200" value="100">
+                <span class="value" id="saturationVal">100%</span>
+              </div>
+            </div>
+            <div class="control-group">
+              <label>Blur</label>
+              <div class="control-row">
+                <input type="range" id="blur" min="0" max="5" value="0">
+                <span class="value" id="blurVal">0</span>
+              </div>
+            </div>
+            <div class="control-group">
+              <label>Sharpen</label>
+              <div class="control-row">
+                <input type="range" id="sharpen" min="0" max="100" value="0">
+                <span class="value" id="sharpenVal">0%</span>
+              </div>
+            </div>
+            <div class="control-group">
+              <label>Noise</label>
+              <div class="control-row">
+                <input type="range" id="noise" min="0" max="30" value="0">
+                <span class="value" id="noiseVal">0%</span>
+              </div>
+            </div>
+            <div class="control-group">
+              <label>Zoom</label>
+              <div class="control-row">
+                <input type="range" id="zoom" min="50" max="200" value="100">
+                <span class="value" id="zoomVal">100%</span>
+              </div>
+            </div>
+          </div>
+        </details>
+        <details class="sidebar-category" open>
+          <summary class="sidebar-category-summary">Grid</summary>
+          <div class="sidebar-category-body">
+            <div class="control-group">
+              <label>Grid size</label>
+              <div class="control-row">
+                <input type="number" id="cols" min="8" max="120" value="40">
+                <span>×</span>
+                <input type="number" id="rows" min="8" max="80" value="30">
+              </div>
+            </div>
+            <div class="control-group">
+              <label>Dot size (preview)</label>
+              <div class="control-row">
+                <input type="range" id="dotSize" min="30" max="100" value="45">
+                <span class="value" id="dotSizeVal">45%</span>
+              </div>
+            </div>
+          </div>
+        </details>
+        <details class="sidebar-category" open>
+          <summary class="sidebar-category-summary">Options</summary>
+          <div class="sidebar-category-body">
+            <div class="control-group">
+              <div class="control-row">
+                <label><input type="checkbox" id="colorMode"> Color mode</label>
+              </div>
+              <div class="control-row">
+                <label><input type="checkbox" id="dither"> Dither (Floyd–Steinberg)</label>
+              </div>
+            </div>
+          </div>
+        </details>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="main-header">
+        <h1 class="app-title">Dot Matrix Live Preview</h1>
+      </header>
+      <div class="drop-zone" id="drop">Drop video here or click to choose</div>
+      <input type="file" id="fileInput" accept="video/*" hidden>
+      <div class="video-wrap hidden" id="videoWrap">
+        <video id="video" muted playsinline></video>
+      </div>
+      <div class="preview-section">
+        <div class="preview-wrap" id="previewWrap">
+          <canvas id="previewCanvas"></canvas>
+        </div>
+        <p id="hint" class="preview-hint">Load a video to see live dot matrix preview.</p>
+      </div>
+      <div class="playback-controls">
+        <div class="timeline-section hidden" id="timelineSection">
+          <div class="timeline-labels">
+            <span id="timeCurrent">0:00</span>
+            <span>Start: <input type="number" id="startTimeInput" min="0" step="0.1" value="0"> s</span>
+            <span>End: <input type="number" id="endTimeInput" min="0" step="0.1" value="0"> s</span>
+            <span id="timeDuration">0:00</span>
+          </div>
+          <div class="timeline-track-wrap" id="timelineTrack">
+            <div class="timeline-track">
+              <div class="timeline-range" id="timelineRange"></div>
+              <div class="timeline-playhead" id="timelinePlayhead"></div>
+              <div class="timeline-handle timeline-handle-start" id="handleStart" title="Loop start"></div>
+              <div class="timeline-handle timeline-handle-end" id="handleEnd" title="Loop end"></div>
+            </div>
+          </div>
+        </div>
+        <div class="playback-buttons">
+          <button id="playBtn">Play</button>
+          <button id="pauseBtn" disabled>Pause</button>
+          <label class="playback-label">Speed <select id="playbackSpeed">
+              <option value="0.25">0.25×</option>
+              <option value="0.5">0.5×</option>
+              <option value="0.75">0.75×</option>
+              <option value="1" selected>1×</option>
+              <option value="1.25">1.25×</option>
+              <option value="1.5">1.5×</option>
+              <option value="2">2×</option>
+            </select></label>
+          <label class="playback-label">Preview <input type="number" id="previewFps" min="1" max="60" value="15"
+              title="Dot matrix updates per second"> fps</label>
+        </div>
+      </div>
+    </main>
+
+    <aside class="sidebar sidebar-right">
+      <div class="sidebar-inner">
+        <div id="generatorOptions">
+          <div id="optionsVideo" class="generator-panel">
+            <h2 class="sidebar-title">Video</h2>
+            <p class="sidebar-hint">Drop or pick a video in the center.</p>
+          </div>
+          <div id="optionsWebcam" class="generator-panel hidden">
+            <h2 class="sidebar-title">Webcam</h2>
+            <div class="control-group">
+              <button id="webcamStartBtn" class="btn-primary">Start camera</button>
+              <button id="webcamStopBtn" class="btn-secondary hidden">Stop camera</button>
+            </div>
+          </div>
+          <div id="optionsPerlin" class="generator-panel hidden">
+            <h2 class="sidebar-title">Perlin noise</h2>
+            <div class="control-group">
+              <label>Speed</label>
+              <div class="control-row">
+                <input type="range" id="perlinSpeed" min="10" max="200" value="60">
+                <span class="value" id="perlinSpeedVal">60</span>
+              </div>
+            </div>
+            <div class="control-group">
+              <label>Scale</label>
+              <div class="control-row">
+                <input type="range" id="perlinScale" min="5" max="80" value="25">
+                <span class="value" id="perlinScaleVal">25</span>
+              </div>
+            </div>
+            <div class="control-group">
+              <label>Octaves</label>
+              <div class="control-row">
+                <input type="number" id="perlinOctaves" min="1" max="5" value="2">
+              </div>
+            </div>
+            <div class="control-group">
+              <div class="control-row">
+                <label><input type="checkbox" id="perlinColor"> Color</label>
+              </div>
+            </div>
+          </div>
+          <div id="optionsWaves" class="generator-panel hidden">
+            <h2 class="sidebar-title">Waves</h2>
+            <div class="control-group">
+              <label>Frequency</label>
+              <div class="control-row">
+                <input type="range" id="wavesFreq" min="1" max="20" value="4">
+                <span class="value" id="wavesFreqVal">4</span>
+              </div>
+            </div>
+            <div class="control-group">
+              <label>Speed</label>
+              <div class="control-row">
+                <input type="range" id="wavesSpeed" min="10" max="150" value="50">
+                <span class="value" id="wavesSpeedVal">50</span>
+              </div>
+            </div>
+            <div class="control-group">
+              <label>Amplitude</label>
+              <div class="control-row">
+                <input type="range" id="wavesAmp" min="10" max="100" value="50">
+                <span class="value" id="wavesAmpVal">50%</span>
+              </div>
+            </div>
+          </div>
+          <div id="optionsWaves3d" class="generator-panel hidden">
+            <h2 class="sidebar-title">3D Waves</h2>
+            <div class="control-group">
+              <label>Frequency</label>
+              <div class="control-row">
+                <input type="range" id="waves3dFreq" min="1" max="12" value="3">
+                <span class="value" id="waves3dFreqVal">3</span>
+              </div>
+            </div>
+            <div class="control-group">
+              <label>Speed</label>
+              <div class="control-row">
+                <input type="range" id="waves3dSpeed" min="10" max="120" value="40">
+                <span class="value" id="waves3dSpeedVal">40</span>
+              </div>
+            </div>
+            <div class="control-group">
+              <label>Amplitude</label>
+              <div class="control-row">
+                <input type="range" id="waves3dAmp" min="20" max="100" value="70">
+                <span class="value" id="waves3dAmpVal">70%</span>
+              </div>
+            </div>
+            <div class="control-group">
+              <label>Light angle (°)</label>
+              <div class="control-row">
+                <input type="range" id="waves3dLight" min="0" max="360" value="315">
+                <span class="value" id="waves3dLightVal">315</span>
+              </div>
+            </div>
+          </div>
+          <div id="optionsVertex" class="generator-panel hidden">
+            <h2 class="sidebar-title">Vertex mesh</h2>
+            <div class="control-group">
+              <label>Speed</label>
+              <div class="control-row">
+                <input type="range" id="vertexSpeed" min="10" max="150" value="60">
+                <span class="value" id="vertexSpeedVal">60</span>
+              </div>
+            </div>
+            <div class="control-group">
+              <label>Depth (wave height)</label>
+              <div class="control-row">
+                <input type="range" id="vertexDepth" min="10" max="100" value="60">
+                <span class="value" id="vertexDepthVal">60%</span>
+              </div>
+            </div>
+            <div class="control-group">
+              <label>Wavelength</label>
+              <div class="control-row">
+                <input type="range" id="vertexWavelength" min="1" max="15" value="5">
+                <span class="value" id="vertexWavelengthVal">5</span>
+              </div>
+            </div>
+            <div class="control-group">
+              <div class="control-row">
+                <label><input type="checkbox" id="vertexColor"> Color</label>
+              </div>
+            </div>
+          </div>
+          <div id="optionsPlasma" class="generator-panel hidden">
+            <h2 class="sidebar-title">Plasma</h2>
+            <div class="control-group">
+              <label>Speed</label>
+              <div class="control-row">
+                <input type="range" id="plasmaSpeed" min="10" max="150" value="50">
+                <span class="value" id="plasmaSpeedVal">50</span>
+              </div>
+            </div>
+            <div class="control-group">
+              <label>Scale</label>
+              <div class="control-row">
+                <input type="range" id="plasmaScale" min="5" max="60" value="20">
+                <span class="value" id="plasmaScaleVal">20</span>
+              </div>
+            </div>
+            <div class="control-group">
+              <div class="control-row">
+                <label><input type="checkbox" id="plasmaColor"> Color</label>
+              </div>
+            </div>
+          </div>
+          <div id="optionsTerrain" class="generator-panel hidden">
+            <h2 class="sidebar-title">Terrain</h2>
+            <div class="control-group">
+              <label>Speed</label>
+              <div class="control-row">
+                <input type="range" id="terrainSpeed" min="10" max="120" value="30">
+                <span class="value" id="terrainSpeedVal">30</span>
+              </div>
+            </div>
+            <div class="control-group">
+              <label>Scale</label>
+              <div class="control-row">
+                <input type="range" id="terrainScale" min="5" max="50" value="18">
+                <span class="value" id="terrainScaleVal">18</span>
+              </div>
+            </div>
+            <div class="control-group">
+              <label>Light angle (°)</label>
+              <div class="control-row">
+                <input type="range" id="terrainLight" min="0" max="360" value="45">
+                <span class="value" id="terrainLightVal">45</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <details class="sidebar-category sidebar-category-right hidden" id="colorPaletteSection">
+          <summary class="sidebar-category-summary">Color palette</summary>
+          <div class="sidebar-category-body">
+            <p class="sidebar-hint">Used when Color is on (Perlin, Vertex, Plasma).</p>
+            <div class="control-group">
+              <label>Palette</label>
+              <div class="control-row control-row-palette">
+                <select id="colorPaletteSelect"></select>
+                <button type="button" id="colorPaletteRandom" class="btn-secondary" title="Pick a random palette">Random</button>
+              </div>
+            </div>
+          </div>
+        </details>
+        <details class="sidebar-category sidebar-category-right" open>
+          <summary class="sidebar-category-summary">Post-processing</summary>
+          <div class="sidebar-category-body">
+            <div class="control-group">
+              <div class="control-row">
+                <label><input type="checkbox" id="invert"> Invert</label>
+              </div>
+              <div class="control-row">
+                <label><input type="checkbox" id="flipH"> Flip horizontal</label>
+              </div>
+              <div class="control-row">
+                <label><input type="checkbox" id="flipV"> Flip vertical</label>
+              </div>
+            </div>
+            <div class="control-group">
+              <label>Smooth (blur dots)</label>
+              <div class="control-row">
+                <input type="range" id="smooth" min="0" max="3" value="0">
+                <span class="value" id="smoothVal">0</span>
+              </div>
+            </div>
+            <div class="control-group">
+              <label>Post contrast</label>
+              <div class="control-row">
+                <input type="range" id="postContrast" min="50" max="200" value="100">
+                <span class="value" id="postContrastVal">1.0</span>
+              </div>
+            </div>
+          </div>
+        </details>
+        <div class="sidebar-export">
+          <h2 class="sidebar-title">Export</h2>
+          <div class="control-group">
+            <label>Export name</label>
+            <div class="control-row">
+              <input type="text" id="exportName" placeholder="e.g. my_animation" maxlength="80">
+            </div>
+          </div>
+          <div class="control-group">
+            <label id="exportDurationLabel">Duration (from timeline)</label>
+            <div class="control-row" id="exportDurationRow">
+              <input type="number" id="exportDuration" min="0.5" max="60" step="0.5" value="2"
+                title="Seconds to capture for webcam/generators">
+              <span class="value">s</span>
+            </div>
+          </div>
+          <div class="control-group">
+            <button id="copyJsonBtn" class="btn-primary">Copy JSON</button>
+            <p class="export-status" id="copyJsonStatus"></p>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </div>
+  <script src="live_preview.js"></script>
+</body>
+
+</html>
