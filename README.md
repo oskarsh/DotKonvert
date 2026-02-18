@@ -58,7 +58,7 @@
 
 ## 📸 Screenshot
 
-![DotKonvert Live Preview](screen.png)
+![DotKonvert Live Preview](screen.jpg)
 
 ---
 
@@ -176,7 +176,7 @@ DotKonvert/
 │   ├── live_preview.css
 │   ├── live_preview.js
 │   └── favicon.svg
-├── screen.png                 # Screenshot
+├── screen.jpg                 # Screenshot
 └── README.md                  # This file
 ```
 
