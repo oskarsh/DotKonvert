@@ -215,6 +215,7 @@
             <span>Start: <input type="number" id="startTimeInput" min="0" step="0.1" value="0"> s</span>
             <span>End: <input type="number" id="endTimeInput" min="0" step="0.1" value="0"> s</span>
             <span id="timeDuration">0:00</span>
+            <span class="timeline-crossfade">Crossfade: <input type="number" id="crossfadeDuration" min="0" max="30" step="0.1" value="0" title="Blend end → start over this many seconds for seamless loop"> s</span>
           </div>
           <div class="timeline-track-wrap" id="timelineTrack">
             <div class="timeline-track">
@@ -223,6 +224,9 @@
               <div class="timeline-handle timeline-handle-start" id="handleStart" title="Loop start"></div>
               <div class="timeline-handle timeline-handle-end" id="handleEnd" title="Loop end"></div>
             </div>
+          </div>
+          <div class="timeline-strip-wrap hidden" id="timelineStripWrap" title="Preview of frames along the timeline">
+            <canvas id="timelineStripCanvas"></canvas>
           </div>
         </div>
         <div class="playback-buttons">
@@ -390,6 +394,18 @@
                 <label><input type="checkbox" id="plasmaColor"> Color</label>
               </div>
             </div>
+            <div class="control-group">
+              <div class="control-row">
+                <label><input type="checkbox" id="plasmaSeamless"> Seamless</label>
+                <span class="sidebar-hint" title="Tile the pattern so edges match">↻</span>
+              </div>
+            </div>
+            <div class="control-group">
+              <div class="control-row">
+                <label><input type="checkbox" id="plasmaPerfectLoop"> Perfect loop</label>
+                <span class="sidebar-hint" title="Animation loops exactly over Export duration">⟲</span>
+              </div>
+            </div>
           </div>
           <div id="optionsTerrain" class="generator-panel hidden">
             <h2 class="sidebar-title">Terrain</h2>
@@ -412,6 +428,18 @@
               <div class="control-row">
                 <input type="range" id="terrainLight" min="0" max="360" value="45">
                 <span class="value" id="terrainLightVal">45</span>
+              </div>
+            </div>
+            <div class="control-group">
+              <div class="control-row">
+                <label><input type="checkbox" id="terrainSeamless"> Seamless</label>
+                <span class="sidebar-hint" title="Tile the height map so edges match">↻</span>
+              </div>
+            </div>
+            <div class="control-group">
+              <div class="control-row">
+                <label><input type="checkbox" id="terrainPerfectLoop"> Perfect loop</label>
+                <span class="sidebar-hint" title="Animation loops exactly over Export duration">⟲</span>
               </div>
             </div>
           </div>
@@ -471,7 +499,7 @@
             <label id="exportDurationLabel">Duration (from timeline)</label>
             <div class="control-row" id="exportDurationRow">
               <input type="number" id="exportDuration" min="0.5" max="60" step="0.5" value="2"
-                title="Seconds to capture for webcam/generators">
+                title="Seconds to capture. With Perfect loop (Plasma/Terrain), this is one loop cycle for a seamless repeat.">
               <span class="value">s</span>
             </div>
           </div>

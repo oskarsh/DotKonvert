@@ -292,6 +292,13 @@
   let lastDrawTime = 0;
   let webcamStream = null;
   let generatorTime = 0;
+  let generatorPlayheadTime = 0;
+  let generatorPlaying = false;
+  let lastGenTime = 0;
+  let timelineStripCanvas = null;
+  let timelineStripCtx = null;
+  let timelineStripBuildScheduled = null;
+  let frameToDotsCrossfadeGuard = false;
 
   const generatorPanels = {
     video: document.getElementById('optionsVideo'),
@@ -327,7 +334,23 @@
     } else {
       videoWrap.classList.add('hidden');
     }
-    timelineSection.classList.toggle('hidden', mode !== 'video' || !duration);
+    const isGenerator = GENERATOR_MODES.includes(mode);
+    const showTimeline = (mode === 'video' && duration) || isGenerator;
+    timelineSection.classList.toggle('hidden', !showTimeline);
+    const stripWrap = document.getElementById('timelineStripWrap');
+    if (stripWrap) stripWrap.classList.toggle('hidden', !isGenerator);
+    if (isGenerator) {
+      const secs = getExportDurationSecs();
+      if (loopEnd > secs || loopStart >= loopEnd) {
+        loopStart = 0;
+        loopEnd = secs;
+        const startIn = document.getElementById('startTimeInput');
+        const endIn = document.getElementById('endTimeInput');
+        if (startIn) startIn.value = '0';
+        if (endIn) endIn.value = secs.toFixed(2);
+      }
+      scheduleTimelineStripBuild();
+    }
     hint.classList.toggle('hidden', mode !== 'video' ? true : !!duration);
     if (mode !== 'video') hint.classList.add('hidden');
     const colorPaletteSection = document.getElementById('colorPaletteSection');
@@ -354,6 +377,18 @@
   function getSelectedPaletteId() {
     const sel = document.getElementById('colorPaletteSelect');
     return (sel && sel.value) ? sel.value : 'default';
+  }
+
+  /** When Perfect loop is on: returns phase in [0, 2π] for the given time and loop duration. Otherwise null. */
+  function getGeneratorLoopPhase(timeSecs, loopDurationSecs) {
+    const dur = parseFloat(loopDurationSecs);
+    if (!(dur > 0)) return null;
+    const t = ((timeSecs % dur) + dur) % dur;
+    return (t / dur) * 2 * Math.PI;
+  }
+
+  function getExportDurationSecs() {
+    return Math.max(0.5, parseFloat(exportDurationEl.value) || 2);
   }
 
   function handleDrop(e) {
@@ -431,24 +466,112 @@
     return m + ':' + (sec < 10 ? '0' : '') + sec.toFixed(1);
   }
 
+  function getTimelineDuration() {
+    const mode = getSourceMode();
+    if (GENERATOR_MODES.includes(mode)) return getExportDurationSecs();
+    return duration;
+  }
+
+  function getTimelineCurrentTime() {
+    const mode = getSourceMode();
+    if (GENERATOR_MODES.includes(mode)) return generatorPlayheadTime;
+    return video.currentTime;
+  }
+
   function updateTimelineUI() {
-    if (!duration) return;
-    const t = video.currentTime;
-    const startPct = (loopStart / duration) * 100;
-    const endPct = (loopEnd / duration) * 100;
-    const currentPct = (t / duration) * 100;
+    const dur = getTimelineDuration();
+    if (!(dur > 0)) return;
+    const t = getTimelineCurrentTime();
+    const startPct = (loopStart / dur) * 100;
+    const endPct = (loopEnd / dur) * 100;
+    const currentPct = Math.min(100, (t / dur) * 100);
     timelineRange.style.left = startPct + '%';
     timelineRange.style.width = (endPct - startPct) + '%';
     timelinePlayhead.style.left = currentPct + '%';
     handleStart.style.left = startPct + '%';
     handleEnd.style.left = endPct + '%';
     timeCurrent.textContent = formatTime(t);
+    const durEl = document.getElementById('timeDuration');
+    if (durEl) durEl.textContent = formatTime(dur);
+  }
+
+  const TIMELINE_STRIP_CELLS = 24;
+
+  function scheduleTimelineStripBuild() {
+    if (timelineStripBuildScheduled) return;
+    timelineStripBuildScheduled = requestAnimationFrame(() => {
+      timelineStripBuildScheduled = null;
+      buildTimelineStrip();
+    });
+  }
+
+  function buildTimelineStrip() {
+    const mode = getSourceMode();
+    if (!GENERATOR_MODES.includes(mode)) return;
+    const wrap = document.getElementById('timelineStripWrap');
+    const canvas = document.getElementById('timelineStripCanvas');
+    if (!wrap || !canvas || wrap.classList.contains('hidden')) return;
+    const dur = getExportDurationSecs();
+    const cfg = getConfig();
+    const cols = cfg.cols;
+    const rows = cfg.rows;
+    const cellW = 20;
+    const cellH = 40;
+    const w = TIMELINE_STRIP_CELLS * cellW;
+    const h = cellH;
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const savedTime = generatorTime;
+    for (let i = 0; i < TIMELINE_STRIP_CELLS; i++) {
+      const t = i / (TIMELINE_STRIP_CELLS - 1 || 1) * dur;
+      generatorTime = t;
+      const result = frameToDots();
+      generatorTime = savedTime;
+      if (!result || !result.dots) continue;
+      const dx = i * cellW;
+      const dotW = cellW / cols;
+      const dotH = cellH / rows;
+      for (let ry = 0; ry < rows; ry++) {
+        for (let rx = 0; rx < cols; rx++) {
+          const idx = (ry * cols + rx) * (result.colorMode ? 4 : 1);
+          let v = result.dots[idx];
+          if (result.colorMode) {
+            const r = result.dots[idx] ?? 0;
+            const g = result.dots[idx + 1] ?? 0;
+            const b = result.dots[idx + 2] ?? 0;
+            v = (r + g + b) / 3;
+          }
+          const x = dx + rx * dotW;
+          const y = ry * dotH;
+          ctx.fillStyle = `rgba(255,255,255,${v})`;
+          ctx.fillRect(x, y, Math.ceil(dotW) + 0.5, Math.ceil(dotH) + 0.5);
+        }
+      }
+    }
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+    ctx.lineWidth = 1;
+    const startPx = (loopStart / dur) * w;
+    const endPx = (loopEnd / dur) * w;
+    ctx.strokeRect(startPx, 0, endPx - startPx, h);
   }
 
   function seekFromTrack(clientX) {
     const rect = timelineTrack.getBoundingClientRect();
     const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-    video.currentTime = pct * duration;
+    const mode = getSourceMode();
+    const dur = getTimelineDuration();
+    if (GENERATOR_MODES.includes(mode)) {
+      generatorPlayheadTime = Math.max(loopStart, Math.min(loopEnd, pct * dur));
+      generatorTime = generatorPlayheadTime;
+      const startIn = document.getElementById('startTimeInput');
+      const endIn = document.getElementById('endTimeInput');
+      if (startIn) startIn.value = loopStart.toFixed(2);
+      if (endIn) endIn.value = loopEnd.toFixed(2);
+    } else {
+      video.currentTime = pct * duration;
+    }
     updateTimelineUI();
     drawPreview();
   }
@@ -888,16 +1011,23 @@
     const speed = (parseInt(document.getElementById('plasmaSpeed').value, 10) || 50) / 100;
     const scale = (parseInt(document.getElementById('plasmaScale').value, 10) || 20) / 10;
     const colorMode = document.getElementById('plasmaColor').checked;
-    const t = generatorTime * speed;
+    const seamless = document.getElementById('plasmaSeamless') && document.getElementById('plasmaSeamless').checked;
+    const perfectLoop = document.getElementById('plasmaPerfectLoop') && document.getElementById('plasmaPerfectLoop').checked;
+    const loopDur = getExportDurationSecs();
+    const phase = perfectLoop ? getGeneratorLoopPhase(generatorTime, loopDur) : null;
+    const t = phase !== null ? phase : generatorTime * speed;
     const img = generatorCtx.createImageData(cols, rows);
+    const twoPi = 2 * Math.PI;
     for (let y = 0; y < rows; y++) {
       for (let x = 0; x < cols; x++) {
         const nx = x / cols, ny = y / rows;
+        const sx = seamless ? nx * twoPi : nx * scale * 10;
+        const sy = seamless ? ny * twoPi : ny * scale * 10;
         const v = (
-          Math.sin(nx * scale * 10 + t) +
-          Math.sin(ny * scale * 10 + t * 1.1) +
-          Math.sin((nx + ny) * scale * 10 + t * 0.9) +
-          Math.sin(Math.sqrt((nx - 0.5) ** 2 + (ny - 0.5) ** 2) * scale * 15 + t)
+          Math.sin(sx + t) +
+          Math.sin(sy + t * 1.1) +
+          Math.sin((seamless ? (nx + ny) * twoPi : (nx + ny) * scale * 10) + t * 0.9) +
+          Math.sin((seamless ? Math.sqrt((nx - 0.5) ** 2 + (ny - 0.5) ** 2) * twoPi : Math.sqrt((nx - 0.5) ** 2 + (ny - 0.5) ** 2) * scale * 15) + t)
         ) * 0.25 + 0.5;
         const vc = Math.max(0, Math.min(255, (v * 255) | 0));
         if (colorMode) {
@@ -930,15 +1060,31 @@
     const lightDeg = (parseInt(document.getElementById('terrainLight').value, 10) || 45) * (Math.PI / 180);
     const lx = Math.cos(lightDeg);
     const ly = Math.sin(lightDeg);
-    const t = generatorTime * speed;
+    const seamless = document.getElementById('terrainSeamless') && document.getElementById('terrainSeamless').checked;
+    const perfectLoop = document.getElementById('terrainPerfectLoop') && document.getElementById('terrainPerfectLoop').checked;
+    const loopDur = getExportDurationSecs();
+    const phase = perfectLoop ? getGeneratorLoopPhase(generatorTime, loopDur) : null;
+    const tPerlin = phase !== null ? phase * (256 / (2 * Math.PI)) : generatorTime * speed;
+    const tPhase = phase !== null ? phase : generatorTime * speed;
+    const twoPi = 2 * Math.PI;
     const img = generatorCtx.createImageData(cols, rows);
     for (let y = 0; y < rows; y++) {
       for (let x = 0; x < cols; x++) {
-        const nx = x * scale / cols;
-        const ny = y * scale / rows;
-        const h = perlin2(nx, ny, t) * 0.6 + perlin2(nx * 2, ny * 2, t * 0.7) * 0.3 + 0.1;
-        const hx = (perlin2(nx + 0.05, ny, t) - perlin2(nx - 0.05, ny, t)) * 5;
-        const hy = (perlin2(nx, ny + 0.05, t) - perlin2(nx, ny - 0.05, t)) * 5;
+        let nx = x * scale / cols, ny = y * scale / rows;
+        if (seamless) {
+          nx = (x / cols) * twoPi;
+          ny = (y / rows) * twoPi;
+        }
+        let h, hx, hy;
+        if (seamless) {
+          h = (Math.sin(nx + tPhase) + Math.sin(ny + tPhase * 0.7) + Math.sin(nx + ny + tPhase * 0.5)) * 0.2 + 0.5;
+          hx = (Math.sin(nx + 0.2 + tPhase) - Math.sin(nx - 0.2 + tPhase)) * 2;
+          hy = (Math.sin(ny + 0.2 + tPhase * 0.7) - Math.sin(ny - 0.2 + tPhase * 0.7)) * 2;
+        } else {
+          h = perlin2(nx, ny, tPerlin) * 0.6 + perlin2(nx * 2, ny * 2, tPerlin) * 0.3 + 0.1;
+          hx = (perlin2(nx + 0.05, ny, tPerlin) - perlin2(nx - 0.05, ny, tPerlin)) * 5;
+          hy = (perlin2(nx, ny + 0.05, tPerlin) - perlin2(nx, ny - 0.05, tPerlin)) * 5;
+        }
         const shade = Math.max(0, Math.min(1, (-hx * lx - hy * ly) * 2 + 0.6));
         const c = Math.max(0, Math.min(255, (h * shade * 255) | 0));
         const i = (y * cols + x) * 4;
@@ -968,6 +1114,28 @@
     updateCaptureSize();
     const cfg = getConfig();
     const { cols, rows, threshold, outputMode, dither, invert, colorMode } = cfg;
+
+    if (GENERATOR_MODES.includes(mode) && !frameToDotsCrossfadeGuard) {
+      const crossfadeEl = document.getElementById('crossfadeDuration');
+      const crossfadeSecs = Math.max(0, parseFloat(crossfadeEl && crossfadeEl.value) || 0);
+      const loopLen = loopEnd - loopStart;
+      if (crossfadeSecs > 0 && loopLen > 0 && generatorPlayheadTime >= loopEnd - crossfadeSecs && generatorPlayheadTime <= loopEnd) {
+        const offset = generatorPlayheadTime - (loopEnd - crossfadeSecs);
+        const fps = Math.max(1, parseInt(previewFpsEl.value, 10) || 15);
+        const oneFrame = 1 / fps;
+        const alpha = offset >= crossfadeSecs - oneFrame * 0.5 ? 1 : Math.min(1, offset / crossfadeSecs);
+        frameToDotsCrossfadeGuard = true;
+        generatorTime = generatorPlayheadTime;
+        const resultEnd = frameToDots();
+        generatorTime = loopStart;
+        const resultStart = frameToDots();
+        frameToDotsCrossfadeGuard = false;
+        generatorTime = generatorPlayheadTime;
+        if (resultEnd && resultStart && resultEnd.dots.length === resultStart.dots.length)
+          return { cols, rows, dots: blendDots(resultEnd.dots, resultStart.dots, alpha, !!resultEnd.colorMode), colorMode: resultEnd.colorMode };
+      }
+    }
+
     const source = getCurrentFrameSource();
     const zoomPct = cfg.zoom || 100;
     const zoomFactor = zoomPct / 100;
@@ -1059,6 +1227,27 @@
     return { cols, rows, dots: out };
   }
 
+  /** Blend two dot arrays (same layout). alpha 0 = all A, 1 = all B. */
+  function blendDots(dotsA, dotsB, alpha, colorMode) {
+    const len = dotsA.length;
+    if (len !== dotsB.length) return dotsA;
+    const a = 1 - alpha;
+    if (colorMode) {
+      const out = new Array(len);
+      for (let i = 0; i < len; i++)
+        out[i] = [
+          a * dotsA[i][0] + alpha * dotsB[i][0],
+          a * dotsA[i][1] + alpha * dotsB[i][1],
+          a * dotsA[i][2] + alpha * dotsB[i][2],
+        ];
+      return out;
+    }
+    const out = new Float32Array(len);
+    for (let i = 0; i < len; i++)
+      out[i] = a * dotsA[i] + alpha * dotsB[i];
+    return out;
+  }
+
   function drawPreview() {
     const result = frameToDots();
     if (!result) return;
@@ -1091,7 +1280,22 @@
 
   function loop(now) {
     const mode = getSourceMode();
-    if (GENERATOR_MODES.includes(mode)) generatorTime = now / 1000;
+    if (GENERATOR_MODES.includes(mode)) {
+      if (generatorPlaying) {
+        const delta = (now - lastGenTime) / 1000;
+        lastGenTime = now;
+        generatorPlayheadTime += delta;
+        const span = loopEnd - loopStart;
+        while (generatorPlayheadTime >= loopEnd && span > 0)
+          generatorPlayheadTime = loopStart + (generatorPlayheadTime - loopEnd);
+        while (generatorPlayheadTime < loopStart && span > 0)
+          generatorPlayheadTime = loopEnd - (loopStart - generatorPlayheadTime);
+      }
+      generatorTime = generatorPlayheadTime;
+      updateTimelineUI();
+    } else {
+      generatorTime = now / 1000;
+    }
     const fps = Math.max(1, Math.min(60, parseInt(previewFpsEl.value, 10) || 15));
     const interval = 1000 / fps;
     if (now - lastDrawTime >= interval) {
@@ -1120,33 +1324,92 @@
     let frameCount, frames = [];
 
     if (mode === 'video' && duration) {
-      frameCount = Math.max(1, Math.ceil((loopEnd - loopStart) * fps));
+      const loopLen = loopEnd - loopStart;
+      const crossfadeEl = document.getElementById('crossfadeDuration');
+      const crossfadeSecs = Math.max(0, Math.min(loopLen / 2, parseFloat(crossfadeEl && crossfadeEl.value) || 0));
+      const crossfadeFrames = crossfadeSecs > 0 ? Math.max(1, Math.floor(crossfadeSecs * fps)) : 0;
+      frameCount = Math.max(1, Math.ceil(loopLen * fps));
       const wasPaused = video.paused;
       const savedTime = video.currentTime;
       if (!video.paused) video.pause();
       for (let i = 0; i < frameCount; i++) {
-        const t = loopStart + (i / fps);
-        await seekVideo(t);
-        const result = frameToDots();
-        if (result) frames.push(result.dots);
+        if (crossfadeFrames > 0 && i >= frameCount - crossfadeFrames) {
+          const localIndex = i - (frameCount - crossfadeFrames);
+          const offset = localIndex / fps;
+          const alpha = Math.min(1, offset / crossfadeSecs);
+          await seekVideo(loopEnd - crossfadeSecs + offset);
+          const resultEnd = frameToDots();
+          await seekVideo(loopStart);
+          const resultStart = frameToDots();
+          if (resultEnd && resultStart && resultEnd.dots.length === resultStart.dots.length) {
+            const blended = blendDots(resultEnd.dots, resultStart.dots, alpha, !!resultEnd.colorMode);
+            frames.push(blended);
+          } else if (resultEnd) {
+            frames.push(resultEnd.dots);
+          }
+        } else {
+          const t = loopStart + (i / fps);
+          await seekVideo(t);
+          const result = frameToDots();
+          if (result) frames.push(result.dots);
+        }
+      }
+      if (crossfadeFrames > 0) {
+        await seekVideo(loopStart);
+        const firstAgain = frameToDots();
+        if (firstAgain) frames.push(firstAgain.dots);
       }
       await seekVideo(savedTime);
       if (!wasPaused) video.play();
     } else {
       const secs = Math.max(0.5, parseFloat(exportDurationEl.value) || 2);
-      frameCount = Math.max(1, Math.ceil(secs * fps));
+      const plasmaPerfectLoop = document.getElementById('plasmaPerfectLoop') && document.getElementById('plasmaPerfectLoop').checked;
+      const terrainPerfectLoop = document.getElementById('terrainPerfectLoop') && document.getElementById('terrainPerfectLoop').checked;
+      const usePerfectLoop = (mode === 'plasma' && plasmaPerfectLoop) || (mode === 'terrain' && terrainPerfectLoop);
       if (mode === 'webcam' && webcamStream) {
+        frameCount = Math.max(1, Math.ceil(secs * fps));
         for (let i = 0; i < frameCount; i++) {
           await new Promise((r) => setTimeout(r, 1000 / fps));
           const result = frameToDots();
           if (result) frames.push(result.dots);
         }
       } else if (GENERATOR_MODES.includes(mode)) {
+        const loopLen = Math.max(0.05, loopEnd - loopStart);
+        const crossfadeEl = document.getElementById('crossfadeDuration');
+        const crossfadeSecs = Math.max(0, Math.min(loopLen / 2, parseFloat(crossfadeEl && crossfadeEl.value) || 0));
+        const crossfadeFrames = crossfadeSecs > 0 ? Math.max(1, Math.floor(crossfadeSecs * fps)) : 0;
+        frameCount = Math.max(1, Math.ceil(loopLen * fps));
+        if (usePerfectLoop && crossfadeFrames === 0) frameCount += 1;
         const savedTime = generatorTime;
         for (let i = 0; i < frameCount; i++) {
-          generatorTime = savedTime + i / fps;
-          const result = frameToDots();
-          if (result) frames.push(result.dots);
+          if (crossfadeFrames > 0 && i >= frameCount - crossfadeFrames) {
+            const localIndex = i - (frameCount - crossfadeFrames);
+            const offset = localIndex / fps;
+            const alpha = Math.min(1, offset / crossfadeSecs);
+            generatorTime = loopEnd - crossfadeSecs + offset;
+            const resultEnd = frameToDots();
+            generatorTime = loopStart;
+            const resultStart = frameToDots();
+            if (resultEnd && resultStart && resultEnd.dots.length === resultStart.dots.length) {
+              const blended = blendDots(resultEnd.dots, resultStart.dots, alpha, !!resultEnd.colorMode);
+              frames.push(blended);
+            } else if (resultEnd) {
+              frames.push(resultEnd.dots);
+            }
+          } else if (usePerfectLoop && crossfadeFrames === 0 && i === frameCount - 1) {
+            generatorTime = loopEnd;
+            const result = frameToDots();
+            if (result) frames.push(result.dots);
+          } else {
+            generatorTime = loopStart + (i / fps);
+            const result = frameToDots();
+            if (result) frames.push(result.dots);
+          }
+        }
+        if (crossfadeFrames > 0) {
+          generatorTime = loopStart;
+          const firstAgain = frameToDots();
+          if (firstAgain) frames.push(firstAgain.dots);
         }
         generatorTime = savedTime;
       } else {
@@ -1209,19 +1472,23 @@
   handleStart.addEventListener('mousedown', (e) => { e.preventDefault(); dragHandle = 'start'; didDrag = false; });
   handleEnd.addEventListener('mousedown', (e) => { e.preventDefault(); dragHandle = 'end'; didDrag = false; });
   document.addEventListener('mousemove', (e) => {
-    if (dragHandle === null || !duration) return;
+    const dur = getTimelineDuration();
+    if (dragHandle === null || !(dur > 0)) return;
     didDrag = true;
     const rect = timelineTrack.getBoundingClientRect();
     const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    const t = pct * duration;
+    const t = pct * dur;
     if (dragHandle === 'start') {
       loopStart = Math.max(0, Math.min(t, loopEnd - 0.05));
       startTimeInput.value = loopStart.toFixed(2);
     } else {
-      loopEnd = Math.max(loopStart + 0.05, Math.min(t, duration));
+      loopEnd = Math.max(loopStart + 0.05, Math.min(t, dur));
       endTimeInput.value = loopEnd.toFixed(2);
     }
     updateTimelineUI();
+    if (GENERATOR_MODES.includes(getSourceMode())) {
+      scheduleTimelineStripBuild();
+    }
   });
   document.addEventListener('mouseup', () => { dragHandle = null; });
   timelineTrack.addEventListener('click', (e) => {
@@ -1231,16 +1498,32 @@
   }, true);
 
   startTimeInput.addEventListener('change', () => {
+    const dur = getTimelineDuration();
     loopStart = Math.max(0, Math.min(parseFloat(startTimeInput.value) || 0, loopEnd - 0.05));
     startTimeInput.value = loopStart.toFixed(2);
-    video.currentTime = Math.max(loopStart, Math.min(video.currentTime, loopEnd));
+    if (GENERATOR_MODES.includes(getSourceMode())) {
+      generatorPlayheadTime = Math.max(loopStart, Math.min(generatorPlayheadTime, loopEnd));
+      generatorTime = generatorPlayheadTime;
+      scheduleTimelineStripBuild();
+    } else {
+      video.currentTime = Math.max(loopStart, Math.min(video.currentTime, loopEnd));
+    }
     updateTimelineUI();
+    drawPreview();
   });
   endTimeInput.addEventListener('change', () => {
-    loopEnd = Math.max(loopStart + 0.05, Math.min(parseFloat(endTimeInput.value) || duration, duration));
+    const dur = getTimelineDuration();
+    loopEnd = Math.max(loopStart + 0.05, Math.min(parseFloat(endTimeInput.value) || dur, dur));
     endTimeInput.value = loopEnd.toFixed(2);
-    video.currentTime = Math.max(loopStart, Math.min(video.currentTime, loopEnd));
+    if (GENERATOR_MODES.includes(getSourceMode())) {
+      generatorPlayheadTime = Math.max(loopStart, Math.min(generatorPlayheadTime, loopEnd));
+      generatorTime = generatorPlayheadTime;
+      scheduleTimelineStripBuild();
+    } else {
+      video.currentTime = Math.max(loopStart, Math.min(video.currentTime, loopEnd));
+    }
     updateTimelineUI();
+    drawPreview();
   });
 
   function setPresetCustom() {
@@ -1422,6 +1705,14 @@
   bindGeneratorControl('plasmaSpeed', 'plasmaSpeedVal');
   bindGeneratorControl('plasmaScale', 'plasmaScaleVal');
   document.getElementById('plasmaColor').addEventListener('change', drawPreview);
+  const plasmaSeamlessEl = document.getElementById('plasmaSeamless');
+  const plasmaPerfectLoopEl = document.getElementById('plasmaPerfectLoop');
+  const terrainSeamlessEl = document.getElementById('terrainSeamless');
+  const terrainPerfectLoopEl = document.getElementById('terrainPerfectLoop');
+  if (plasmaSeamlessEl) plasmaSeamlessEl.addEventListener('change', drawPreview);
+  if (plasmaPerfectLoopEl) plasmaPerfectLoopEl.addEventListener('change', drawPreview);
+  if (terrainSeamlessEl) terrainSeamlessEl.addEventListener('change', drawPreview);
+  if (terrainPerfectLoopEl) terrainPerfectLoopEl.addEventListener('change', drawPreview);
   bindGeneratorControl('terrainSpeed', 'terrainSpeedVal');
   bindGeneratorControl('terrainScale', 'terrainScaleVal');
   bindGeneratorControl('terrainLight', 'terrainLightVal');
@@ -1448,20 +1739,39 @@
   if (!rafId) rafId = requestAnimationFrame(loop);
 
   playBtn.addEventListener('click', () => {
-    if (video.currentTime < loopStart || video.currentTime >= loopEnd) {
-      video.currentTime = loopStart;
+    const mode = getSourceMode();
+    if (GENERATOR_MODES.includes(mode)) {
+      generatorPlayheadTime = Math.max(loopStart, Math.min(generatorPlayheadTime, loopEnd - 0.001));
+      generatorTime = generatorPlayheadTime;
+      generatorPlaying = true;
+      lastGenTime = performance.now();
+      playBtn.disabled = true;
+      pauseBtn.disabled = false;
+      if (!rafId) rafId = requestAnimationFrame(loop);
+    } else {
+      if (video.currentTime < loopStart || video.currentTime >= loopEnd) {
+        video.currentTime = loopStart;
+      }
+      lastDrawTime = 0;
+      video.play();
+      playBtn.disabled = true;
+      pauseBtn.disabled = false;
+      if (!rafId) rafId = requestAnimationFrame(loop);
     }
-    lastDrawTime = 0;
-    video.play();
-    playBtn.disabled = true;
-    pauseBtn.disabled = false;
-    if (!rafId) rafId = requestAnimationFrame(loop);
   });
   pauseBtn.addEventListener('click', () => {
-    video.pause();
-    playBtn.disabled = false;
-    pauseBtn.disabled = true;
-    stopLoop();
-    drawPreview();
+    const mode = getSourceMode();
+    if (GENERATOR_MODES.includes(mode)) {
+      generatorPlaying = false;
+      playBtn.disabled = false;
+      pauseBtn.disabled = true;
+      drawPreview();
+    } else {
+      video.pause();
+      playBtn.disabled = false;
+      pauseBtn.disabled = true;
+      stopLoop();
+      drawPreview();
+    }
   });
 })();
