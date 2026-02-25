@@ -348,6 +348,28 @@ body.drag-over::after {
   display: none !important;
 }
 
+.export-webm-section {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(204, 204, 204, 0.08);
+}
+
+.export-webm-title {
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(204, 204, 204, 0.5);
+  margin: 0 0 0.75rem 0;
+}
+
+.export-res-label {
+  font-size: 0.75rem;
+  color: rgba(204, 204, 204, 0.35);
+  margin-top: 0.25rem;
+  display: block;
+}
+
 .control-group {
   margin-bottom: 1rem;
 }

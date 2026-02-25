@@ -215,6 +215,7 @@
             <span>Start: <input type="number" id="startTimeInput" min="0" step="0.1" value="0"> s</span>
             <span>End: <input type="number" id="endTimeInput" min="0" step="0.1" value="0"> s</span>
             <span id="timeDuration">0:00</span>
+            <span class="timeline-crossfade">Crossfade: <input type="number" id="crossfadeDuration" min="0" max="30" step="0.1" value="0" title="Blend end → start over this many seconds for seamless loop"> s</span>
           </div>
           <div class="timeline-track-wrap" id="timelineTrack">
             <div class="timeline-track">
@@ -223,6 +224,9 @@
               <div class="timeline-handle timeline-handle-start" id="handleStart" title="Loop start"></div>
               <div class="timeline-handle timeline-handle-end" id="handleEnd" title="Loop end"></div>
             </div>
+          </div>
+          <div class="timeline-strip-wrap hidden" id="timelineStripWrap" title="Preview of frames along the timeline">
+            <canvas id="timelineStripCanvas"></canvas>
           </div>
         </div>
         <div class="playback-buttons">
@@ -390,6 +394,18 @@
                 <label><input type="checkbox" id="plasmaColor"> Color</label>
               </div>
             </div>
+            <div class="control-group">
+              <div class="control-row">
+                <label><input type="checkbox" id="plasmaSeamless"> Seamless</label>
+                <span class="sidebar-hint" title="Tile the pattern so edges match">↻</span>
+              </div>
+            </div>
+            <div class="control-group">
+              <div class="control-row">
+                <label><input type="checkbox" id="plasmaPerfectLoop"> Perfect loop</label>
+                <span class="sidebar-hint" title="Animation loops exactly over Export duration">⟲</span>
+              </div>
+            </div>
           </div>
           <div id="optionsTerrain" class="generator-panel hidden">
             <h2 class="sidebar-title">Terrain</h2>
@@ -412,6 +428,18 @@
               <div class="control-row">
                 <input type="range" id="terrainLight" min="0" max="360" value="45">
                 <span class="value" id="terrainLightVal">45</span>
+              </div>
+            </div>
+            <div class="control-group">
+              <div class="control-row">
+                <label><input type="checkbox" id="terrainSeamless"> Seamless</label>
+                <span class="sidebar-hint" title="Tile the height map so edges match">↻</span>
+              </div>
+            </div>
+            <div class="control-group">
+              <div class="control-row">
+                <label><input type="checkbox" id="terrainPerfectLoop"> Perfect loop</label>
+                <span class="sidebar-hint" title="Animation loops exactly over Export duration">⟲</span>
               </div>
             </div>
           </div>
@@ -471,13 +499,56 @@
             <label id="exportDurationLabel">Duration (from timeline)</label>
             <div class="control-row" id="exportDurationRow">
               <input type="number" id="exportDuration" min="0.5" max="60" step="0.5" value="2"
-                title="Seconds to capture for webcam/generators">
+                title="Seconds to capture. With Perfect loop (Plasma/Terrain), this is one loop cycle for a seamless repeat.">
               <span class="value">s</span>
+            </div>
+          </div>
+          <div class="control-group">
+            <label>Export FPS</label>
+            <div class="control-row">
+              <select id="exportFps">
+                <option value="15">15 fps</option>
+                <option value="24">24 fps</option>
+                <option value="25">25 fps</option>
+                <option value="30" selected>30 fps</option>
+                <option value="60">60 fps</option>
+              </select>
             </div>
           </div>
           <div class="control-group">
             <button id="copyJsonBtn" class="btn-primary">Copy JSON</button>
             <p class="export-status" id="copyJsonStatus"></p>
+          </div>
+          <div class="export-webm-section">
+            <h3 class="export-webm-title">WebM Video</h3>
+            <div class="control-group">
+              <label>Resolution (px per dot)</label>
+              <div class="control-row">
+                <select id="webmScale">
+                  <option value="8">8 px — small</option>
+                  <option value="12">12 px — medium</option>
+                  <option value="16" selected>16 px — large</option>
+                  <option value="20">20 px — XL</option>
+                  <option value="24">24 px — 2XL</option>
+                </select>
+              </div>
+              <span id="webmResLabel" class="export-res-label">640 × 480 px</span>
+            </div>
+            <div class="control-group">
+              <label>Quality</label>
+              <div class="control-row">
+                <select id="webmQuality">
+                  <option value="500000">Low (500 kbps)</option>
+                  <option value="2000000" selected>Medium (2 Mbps)</option>
+                  <option value="5000000">High (5 Mbps)</option>
+                  <option value="10000000">Ultra (10 Mbps)</option>
+                </select>
+              </div>
+            </div>
+            <div class="control-group">
+              <button id="exportWebmBtn" class="btn-primary">Export WebM</button>
+              <p class="export-status" id="exportWebmStatus"></p>
+            </div>
           </div>
         </div>
       </div>

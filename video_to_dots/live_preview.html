@@ -504,8 +504,51 @@
             </div>
           </div>
           <div class="control-group">
+            <label>Export FPS</label>
+            <div class="control-row">
+              <select id="exportFps">
+                <option value="15">15 fps</option>
+                <option value="24">24 fps</option>
+                <option value="25">25 fps</option>
+                <option value="30" selected>30 fps</option>
+                <option value="60">60 fps</option>
+              </select>
+            </div>
+          </div>
+          <div class="control-group">
             <button id="copyJsonBtn" class="btn-primary">Copy JSON</button>
             <p class="export-status" id="copyJsonStatus"></p>
+          </div>
+          <div class="export-webm-section">
+            <h3 class="export-webm-title">WebM Video</h3>
+            <div class="control-group">
+              <label>Resolution (px per dot)</label>
+              <div class="control-row">
+                <select id="webmScale">
+                  <option value="8">8 px — small</option>
+                  <option value="12">12 px — medium</option>
+                  <option value="16" selected>16 px — large</option>
+                  <option value="20">20 px — XL</option>
+                  <option value="24">24 px — 2XL</option>
+                </select>
+              </div>
+              <span id="webmResLabel" class="export-res-label">640 × 480 px</span>
+            </div>
+            <div class="control-group">
+              <label>Quality</label>
+              <div class="control-row">
+                <select id="webmQuality">
+                  <option value="500000">Low (500 kbps)</option>
+                  <option value="2000000" selected>Medium (2 Mbps)</option>
+                  <option value="5000000">High (5 Mbps)</option>
+                  <option value="10000000">Ultra (10 Mbps)</option>
+                </select>
+              </div>
+            </div>
+            <div class="control-group">
+              <button id="exportWebmBtn" class="btn-primary">Export WebM</button>
+              <p class="export-status" id="exportWebmStatus"></p>
+            </div>
           </div>
         </div>
       </div>

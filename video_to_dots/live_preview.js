@@ -69,6 +69,12 @@
   const exportDurationEl = document.getElementById('exportDuration');
   const exportDurationLabel = document.getElementById('exportDurationLabel');
   const exportDurationRow = document.getElementById('exportDurationRow');
+  const exportFpsEl = document.getElementById('exportFps');
+  const webmScaleEl = document.getElementById('webmScale');
+  const webmQualityEl = document.getElementById('webmQuality');
+  const webmResLabel = document.getElementById('webmResLabel');
+  const exportWebmBtn = document.getElementById('exportWebmBtn');
+  const exportWebmStatus = document.getElementById('exportWebmStatus');
 
   const CUSTOM_PRESETS_KEY = 'dotkonvert_custom_presets';
   const BUILTIN_PRESET_IDS = ['8level', '1bit', 'led', 'smooth', 'minimal', 'grain', 'colorVivid', 'colorPastel', 'colorMono', 'bwSoft', 'bwPunchy', 'noisy', 'mirror', 'softDots'];
@@ -1248,6 +1254,31 @@
     return out;
   }
 
+  function drawDotsToCanvas(ctx, cols, rows, dots, colorMode, cellSize, dotSize) {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, cols * cellSize, rows * cellSize);
+    const rad = (cellSize / 2) * dotSize;
+    for (let i = 0; i < rows; i++) {
+      for (let j = 0; j < cols; j++) {
+        const idx = i * cols + j;
+        const x = j * cellSize + cellSize / 2;
+        const y = i * cellSize + cellSize / 2;
+        if (colorMode) {
+          const [r, g, b] = dots[idx];
+          if (r <= 0 && g <= 0 && b <= 0) continue;
+          ctx.fillStyle = `rgb(${Math.round(r * 255)},${Math.round(g * 255)},${Math.round(b * 255)})`;
+        } else {
+          const opacity = dots[idx];
+          if (opacity <= 0) continue;
+          ctx.fillStyle = `rgba(255, 255, 255, ${opacity})`;
+        }
+        ctx.beginPath();
+        ctx.arc(x, y, rad, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
   function drawPreview() {
     const result = frameToDots();
     if (!result) return;
@@ -1255,27 +1286,7 @@
     const dotSize = getConfig().dotSize;
     previewCanvas.width = cols * CELL;
     previewCanvas.height = rows * CELL;
-    previewCtx.fillStyle = '#000';
-    previewCtx.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
-    const rad = (CELL / 2) * dotSize;
-    for (let i = 0; i < rows; i++) {
-      for (let j = 0; j < cols; j++) {
-        const idx = i * cols + j;
-        const x = j * CELL + CELL / 2;
-        const y = i * CELL + CELL / 2;
-        if (colorMode) {
-          const [r, g, b] = dots[idx];
-          previewCtx.fillStyle = `rgb(${Math.round(r * 255)},${Math.round(g * 255)},${Math.round(b * 255)})`;
-        } else {
-          const opacity = dots[idx];
-          if (opacity <= 0) continue;
-          previewCtx.fillStyle = `rgba(255, 255, 255, ${opacity})`;
-        }
-        previewCtx.beginPath();
-        previewCtx.arc(x, y, rad, 0, Math.PI * 2);
-        previewCtx.fill();
-      }
-    }
+    drawDotsToCanvas(previewCtx, cols, rows, dots, colorMode, CELL, dotSize);
   }
 
   function loop(now) {
@@ -1317,9 +1328,8 @@
     });
   }
 
-  async function captureExportFrames() {
+  async function collectExportFrames(fps) {
     const cfg = getConfig();
-    const fps = Math.max(1, Math.min(60, parseInt(previewFpsEl.value, 10) || 15));
     const mode = getSourceMode();
     let frameCount, frames = [];
 
@@ -1418,6 +1428,12 @@
       }
     }
 
+    return { frames, cfg };
+  }
+
+  async function captureExportFrames() {
+    const fps = Math.max(1, Math.min(60, parseInt(exportFpsEl.value, 10) || 30));
+    const { frames, cfg } = await collectExportFrames(fps);
     const output = {
       cols: cfg.cols,
       rows: cfg.rows,
@@ -1429,6 +1445,96 @@
     const name = (exportNameEl.value || '').trim();
     if (name) output.name = name;
     return JSON.stringify(output);
+  }
+
+  async function exportWebM() {
+    const mode = getSourceMode();
+    if (mode === 'video' && !duration) {
+      exportWebmStatus.textContent = 'Load a video first';
+      setTimeout(() => { exportWebmStatus.textContent = ''; }, 2000);
+      return;
+    }
+    if (mode === 'webcam' && !webcamStream) {
+      exportWebmStatus.textContent = 'Start camera first';
+      setTimeout(() => { exportWebmStatus.textContent = ''; }, 2000);
+      return;
+    }
+    if (!window.MediaRecorder) {
+      exportWebmStatus.textContent = 'MediaRecorder not supported';
+      setTimeout(() => { exportWebmStatus.textContent = ''; }, 3000);
+      return;
+    }
+
+    exportWebmBtn.disabled = true;
+    exportWebmStatus.textContent = 'Collecting frames…';
+
+    const fps = Math.max(1, Math.min(60, parseInt(exportFpsEl.value, 10) || 30));
+    const cellSize = parseInt(webmScaleEl.value, 10) || 16;
+    const bitrate = parseInt(webmQualityEl.value, 10) || 2000000;
+
+    let frames, cfg;
+    try {
+      ({ frames, cfg } = await collectExportFrames(fps));
+    } catch (e) {
+      exportWebmStatus.textContent = 'Failed to collect frames';
+      exportWebmBtn.disabled = false;
+      setTimeout(() => { exportWebmStatus.textContent = ''; }, 3000);
+      return;
+    }
+
+    const expCanvas = document.createElement('canvas');
+    expCanvas.width = cfg.cols * cellSize;
+    expCanvas.height = cfg.rows * cellSize;
+    const expCtx = expCanvas.getContext('2d');
+    const dotSize = cfg.dotSize;
+
+    const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+      ? 'video/webm;codecs=vp9'
+      : 'video/webm';
+    const stream = expCanvas.captureStream(fps);
+    const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: bitrate });
+    const chunks = [];
+
+    const downloadDone = new Promise((resolve, reject) => {
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+      recorder.onstop = () => {
+        try {
+          const blob = new Blob(chunks, { type: 'video/webm' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = ((exportNameEl.value || 'dotmatrix').trim() || 'dotmatrix') + '.webm';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          resolve();
+        } catch (err) {
+          reject(err);
+        }
+      };
+      recorder.onerror = reject;
+    });
+
+    recorder.start();
+
+    for (let i = 0; i < frames.length; i++) {
+      exportWebmStatus.textContent = `Encoding… ${Math.round(((i + 1) / frames.length) * 100)}%`;
+      drawDotsToCanvas(expCtx, cfg.cols, cfg.rows, frames[i], cfg.colorMode, cellSize, dotSize);
+      await new Promise((r) => setTimeout(r, 1000 / fps));
+    }
+
+    recorder.stop();
+
+    try {
+      await downloadDone;
+      exportWebmStatus.textContent = 'Downloaded!';
+    } catch (e) {
+      exportWebmStatus.textContent = 'Export failed';
+    }
+
+    exportWebmBtn.disabled = false;
+    setTimeout(() => { exportWebmStatus.textContent = ''; }, 3000);
   }
 
   async function copyJson() {
@@ -1602,6 +1708,18 @@
   previewFpsEl.addEventListener('change', drawPreview);
 
   copyJsonBtn.addEventListener('click', copyJson);
+  exportWebmBtn.addEventListener('click', exportWebM);
+
+  function updateWebmResLabel() {
+    const cols = Math.max(1, parseInt(colsEl.value, 10) || 40);
+    const rows = Math.max(1, parseInt(rowsEl.value, 10) || 30);
+    const cellSize = parseInt(webmScaleEl.value, 10) || 16;
+    webmResLabel.textContent = `${cols * cellSize} × ${rows * cellSize} px`;
+  }
+  webmScaleEl.addEventListener('change', updateWebmResLabel);
+  colsEl.addEventListener('input', updateWebmResLabel);
+  rowsEl.addEventListener('input', updateWebmResLabel);
+  updateWebmResLabel();
 
   sourceModeEl.addEventListener('change', showGeneratorOptions);
 
